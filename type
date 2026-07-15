@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Type // Minimal</title>
+    <style>
+        :root {
+            --bg-color: #111216;
+            --text-muted: #4b5363;
+            --text-active: #e2e8f0;
+            --color-correct: #4ade80;
+            --color-wrong: #f87171;
+            --accent: #e2e8f0;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: var(--text-muted);
+            overflow: hidden;
+        }
+
+        /* Container */
+        #typing-container {
+            max-width: 800px;
+            width: 90%;
+            text-align: left;
+        }
+
+        /* Live Stats Layout */
+        #stats {
+            display: flex;
+            gap: 30px;
+            font-size: 18px;
+            margin-bottom: 30px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            height: 24px; /* Stop layout shift */
+        }
+
+        .stat-box span {
+            color: var(--color-correct);
+        }
+
+        /* The text wrapper */
+        #word-pool {
+            font-size: 28px;
+            line-height: 1.6;
+            letter-spacing: 1px;
+            word-spacing: 2px;
+            user-select: none;
+            outline: none;
+            min-height: 120px;
+        }
+
+        /* Character States */
+        .char {
+            position: relative;
+            transition: color 0.1s ease;
+        }
+
+        .char.correct {
+            color: var(--text-active);
+        }
+
+        .char.incorrect {
+            color: var(--color-wrong);
+            background-color: rgba(248, 113, 113, 0.1);
+        }
+
+        /* The flashing caret/cursor indicator */
+        .char.current {
+            color: var(--text-active);
+            border-left: 2px solid var(--color-correct);
+            margin-left: -2px; /* Prevent text shifting */
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            50% { border-color: transparent; }
+        }
+
+        #tips {
+            margin-top: 50px;
+            font-size: 12px;
+            color: #333944;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        /* Results Display */
+        .results-view {
+            display: none;
+            animation: fadeIn 0.4s ease forwards;
+        }
+
+        .results-title {
+            font-size: 14px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-bottom: 20px;
+            color: var(--text-muted);
+        }
+
+        .results-grid {
+            display: flex;
+            gap: 60px;
+            margin-bottom: 40px;
+        }
+
+        .result-item {
+            font-size: 48px;
+            font-weight: bold;
+            color: var(--color-correct);
+        }
+
+        .result-item span {
+            display: block;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }
+
+        .continue-prompt {
+            color: var(--text-active);
+            font-size: 16px;
+            border: 1px solid var(--text-muted);
+            padding: 10px 20px;
+            display: inline-block;
+            border-radius: 4px;
+            cursor: pointer;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.8; }
+            50% { opacity: 0.4; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="typing-container">
+        
+        <div id="game-view">
+            <div id="stats">
+                <div class="stat-box">accuracy: <span id="accuracy-val">100%</span></div>
+            </div>
+            <div id="word-pool" tabindex="0"></div>
+        </div>
+
+        <div id="results-view" class="results-view">
+            <div class="results-title">test completed</div>
+            <div class="results-grid">
+                <div class="result-item" id="res-wpm">0<span>WPM</span></div>
+                <div class="result-item" id="res-acc">0%<span>Accuracy</span></div>
+            </div>
+            <div class="continue-prompt" id="btn-continue">
+                Press [Enter] to continue
+            </div>
+        </div>
+        
+        <div id="tips">
+            Keep your index fingers on F and J (feel for the physical bumps!). <br>
+            Don't look down. Trust your muscle memory.
+        </div>
+    </div>
+
+    <script>
+        // Dictionary to pull random words from
+        const words = [
+            "the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "practicing", 
+            "touch", "typing", "helps", "you", "type", "incredibly", "fast", "without", 
+            "ever", "looking", "down", "at", "your", "hands", "focus", "speed", "accuracy", 
+            "keyboard", "screen", "muscle", "memory", "simple", "clean", "minimal", "cyber",
+            "future", "concept", "rhythm", "steady", "relax", "breathe", "perfect", "control"
+        ];
+
+        const gameView = document.getElementById('game-view');
+        const resultsView = document.getElementById('results-view');
+        const wordPoolElement = document.getElementById('word-pool');
+        const accuracyElement = document.getElementById('accuracy-val');
+        
+        const resWpm = document.getElementById('res-wpm');
+        const resAcc = document.getElementById('res-acc');
+        const btnContinue = document.getElementById('btn-continue');
+
+        let targetText = "";
+        let charIndex = 0;
+        let mistakes = 0;
+        let totalTyped = 0;
+        
+        let startTime = null;
+        let isPlaying = false;
+        let isResultsScreen = false;
+
+        // Generate a random string of 12 words from our list
+        function generateRandomSentence() {
+            let selected = [];
+            for (let i = 0; i < 12; i++) {
+                const randIndex = Math.floor(Math.random() * words.length);
+                selected.push(words[randIndex]);
+            }
+            return selected.join(" ");
+        }
+
+        // Initialize/Reset the typing state
+        function initTest() {
+            isResultsScreen = false;
+            isPlaying = false;
+            startTime = null;
+            charIndex = 0;
+            mistakes = 0;
+            totalTyped = 0;
+
+            targetText = generateRandomSentence();
+            
+            // UI Toggle
+            resultsView.style.display = "none";
+            gameView.style.display = "block";
+            accuracyElement.innerText = "100%";
+            wordPoolElement.innerHTML = '';
+
+            // Render text characters
+            targetText.split('').forEach((char, index) => {
+                const span = document.createElement('span');
+                span.classList.add('char');
+                span.innerText = char;
+                if (index === 0) span.classList.add('current');
+                wordPoolElement.appendChild(span);
+            });
+
+            wordPoolElement.focus();
+        }
+
+        // Show WPM and Accuracy
+        function showResults() {
+            isResultsScreen = true;
+            gameView.style.display = "none";
+            resultsView.style.display = "block";
+
+            // Calculate active time in minutes
+            const endTime = new Date();
+            const timeElapsedMinutes = (endTime - startTime) / 1000 / 60;
+            
+            // Standard WPM calculation: (Correct Chars / 5) / Time in Minutes
+            const correctChars = totalTyped - mistakes;
+            const wpm = Math.round((correctChars / 5) / timeElapsedMinutes);
+            const finalAccuracy = Math.round((correctChars / totalTyped) * 100);
+
+            resWpm.innerHTML = `${Math.max(0, wpm)}<span>WPM</span>`;
+            resAcc.innerHTML = `${Math.max(0, finalAccuracy)}%<span>Accuracy</span>`;
+        }
+
+        // Capture Global Keypress Events
+        window.addEventListener('keydown', (e) => {
+            // If on results screen, pressing Enter restarts
+            if (isResultsScreen) {
+                if (e.key === 'Enter') {
+                    initTest();
+                }
+                return;
+            }
+
+            const characters = wordPoolElement.querySelectorAll('.char');
+            
+            // Ignore operational keyboard shortcuts
+            if (e.key.length !== 1 && e.key !== 'Backspace') return;
+
+            // Start timer on first keypress
+            if (!isPlaying) {
+                isPlaying = true;
+                startTime = new Date();
+            }
+
+            // Handle Backspace
+            if (e.key === 'Backspace') {
+                if (charIndex > 0) {
+                    characters[charIndex].classList.remove('current');
+                    charIndex--;
+                    characters[charIndex].className = 'char current';
+                }
+                return;
+            }
+
+            // Handle standard character inputs
+            if (charIndex < characters.length) {
+                totalTyped++;
+                const expectedChar = characters[charIndex].innerText;
+                
+                characters[charIndex].classList.remove('current');
+
+                if (e.key === expectedChar) {
+                    characters[charIndex].classList.add('correct');
+                } else {
+                    characters[charIndex].classList.add('incorrect');
+                    mistakes++;
+                }
+
+                charIndex++;
+
+                if (charIndex < characters.length) {
+                    characters[charIndex].classList.add('current');
+                } else {
+                    // Completed!
+                    showResults();
+                }
+
+                // Live Update Accuracy Meter
+                const accuracy = Math.round(((totalTyped - mistakes) / totalTyped) * 100);
+                accuracyElement.innerText = `${Math.max(0, accuracy)}%`;
+            }
+        });
+
+        // Continue Button Click Support
+        btnContinue.addEventListener('click', initTest);
+
+        // Start the web app automatically on load
+        initTest();
+        
+        // Always make sure typing window is active
+        window.addEventListener('click', () => {
+            if(!isResultsScreen) wordPoolElement.focus();
+        });
+    </script>
+</body>
+</html>
